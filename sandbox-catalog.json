@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "workplaces": [
+    {
+      "name": "base",
+      "label": "base",
+      "description": "Node, git, chromium, ripgrep \u2014 enough for support, mail, QA and research agents.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:99ed9ab78bd245dd1d06f17e2dd91027dae86ad009535ea546606748436d0996",
+          "tag": "base-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev",
+      "label": "dev",
+      "description": "Everything from base plus PHP, JDK, fvm, uv and the node-gyp toolchain \u2014 the union, for an agent whose field is not settled.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:30bca36c1d66d747db458f8876645e3d12ab34a6cd3012f55f517051754465a8",
+          "tag": "dev-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev-flutter",
+      "label": "dev \u00b7 Flutter",
+      "description": "Base plus a Flutter SDK that is already in the image, fvm for projects that pin another version, and a JDK for Gradle.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:e82790799e833a35f2bb508a8d9d86eaf49325f06de70fa95f9adf1eec73cab2",
+          "tag": "dev-flutter-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev-php",
+      "label": "dev \u00b7 PHP",
+      "description": "Base plus PHP 8.2 with the projects' extensions, Composer, a MariaDB to test against, and the node-gyp toolchain.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:17296ad9ed88a26a7cb1fa38883965f88c4fe3821442d7456ea24682bbefc782",
+          "tag": "dev-php-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev-web",
+      "label": "dev \u00b7 Web",
+      "description": "Base plus the native build toolchain for npm packages \u2014 for Node and TypeScript projects.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:c5e44382d270cbe8478563842f47eaf2282a7778104a10f1c548213ab986a61f",
+          "tag": "dev-web-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev-full",
+      "label": "dev \u00b7 Full stack",
+      "description": "Every developer toolchain in one image, including the Flutter SDK \u2014 for an installation that would rather not split.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:31bc0d6a77413e826954709428214d72c71343ed30394b260fd7f46f7980109a",
+          "tag": "dev-full-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    }
+  ],
+  "generated_at": "2026-11-06T18:53:13Z"
+}
