@@ -1,0 +1,23 @@
+# Fork-only: fast-forwards this fork's main to benjaminLedel/covey once a day.
+# Fails instead of overwriting if main has diverged, so local commits are never lost.
+# If upstream changes anything under .github/workflows/, GITHUB_TOKEN cannot push
+# it — use a personal access token with the `workflow` scope as SYNC_TOKEN.
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    # Only meaningful in the fork; a no-op if this file is ever merged upstream.
+    if: github.repository == 'nirosh-7edu/covey'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh repo sync "$GITHUB_REPOSITORY" --source benjaminLedel/covey --branch main
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
