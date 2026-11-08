@@ -11,6 +11,11 @@
 serve.log
 covey.log
 
+# Local security-testing session notes and demo scripts — unreleased finding
+# details, never meant to be committed or pushed.
+context.md
+/security-demos/
+
 # Runtime data (the persistent agent homes, COVEY_DATA_DIR)
 /data/
 
