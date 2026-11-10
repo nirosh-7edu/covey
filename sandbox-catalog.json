@@ -8,7 +8,7 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:5d5816c2f6cece9e4dcb92dcd61405945fe15c969edca864593481a576cda074",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:49a74514fc1fbcf6cff03a6d662e7000d37501d1da2c708a5cb7dc7349f894cb",
           "tag": "base-latest",
           "platforms": [
             "linux/amd64",
@@ -24,7 +24,7 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:b584c524190e2f408d17f13b1e4030bb73a6baa29bfcc0d39b223ed0c8c52057",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:003c61016e09aa98c2914a64997291b20b04b88ae9a0e920965a797ff85123c1",
           "tag": "dev-latest",
           "platforms": [
             "linux/amd64",
@@ -40,7 +40,7 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:8991acd1e2bfbc1411c6e5039da30ae88403fc824ccc278e487e758e04372029",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:d5b3232c2d53ef7a3da732b117f9ee81573f5947bdfc135bb1b440dabdea4c33",
           "tag": "dev-flutter-latest",
           "platforms": [
             "linux/amd64",
@@ -56,8 +56,24 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:aa54698f251cbbb99a078e75007eb1b830b9a0166acabfa69ec73a3efbb83368",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:147640e6f599a752da5a7cfb557d849effe35e787006c4689e3bc9daea3216a8",
           "tag": "dev-php-latest",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dev-php84",
+      "label": "dev \u00b7 PHP 8.4",
+      "description": "The same as dev-php with PHP 8.4 \u2014 for projects whose CI and lock file require 8.4.",
+      "images": [
+        {
+          "covey_version": "main",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:08a8d4cc85835c5b16bb6d4ff51647f52410f3bb0951de09228ec76940db83ff",
+          "tag": "dev-php84-latest",
           "platforms": [
             "linux/amd64",
             "linux/arm64"
@@ -72,7 +88,7 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:b60e9f881caa8b15a8419a73c71a8fb417f735bf8e5bf870a8b46b3c20feef5f",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:839b42b012d42b3168151b9ca6101c34e0d987f39e9dcc7cefe4e9e331539b0b",
           "tag": "dev-web-latest",
           "platforms": [
             "linux/amd64",
@@ -88,7 +104,7 @@
       "images": [
         {
           "covey_version": "main",
-          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:ad1a77c1f10b694798cc942058ce5c2c78148f36d95e8a506f35eaeef6b2d708",
+          "ref": "ghcr.io/nirosh-7edu/covey-sandbox@sha256:5fdea54b4525ffc023895bd989aa2248aec07fabdfe7c76aa0a097203842503a",
           "tag": "dev-full-latest",
           "platforms": [
             "linux/amd64",
@@ -98,5 +114,5 @@
       ]
     }
   ],
-  "generated_at": "2026-11-09T12:37:43Z"
+  "generated_at": "2026-11-10T16:58:49Z"
 }
