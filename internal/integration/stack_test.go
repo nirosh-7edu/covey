@@ -38,6 +38,7 @@ import (
 	identbuiltin "covey/internal/identity/builtin"
 	"covey/internal/mail"
 	"covey/internal/memory"
+	"covey/internal/netguard"
 	"covey/internal/notify"
 	"covey/internal/observability"
 	"covey/internal/orchestrator"
@@ -240,6 +241,9 @@ type stackOpts struct {
 	// staleAfter shortens the patience with a busy status nothing backs. Five
 	// minutes is right in production and is not a test.
 	staleAfter time.Duration
+	// platform builds the control-plane target systems (#710) once the
+	// stores exist, before the orchestrator does.
+	platform func(*stack) map[string]orchestrator.PlatformSystem
 }
 
 // tmpl is the migrated database every test database is copied from.
@@ -302,6 +306,11 @@ func newStack(t *testing.T) *stack {
 func newStackWith(t *testing.T, opts stackOpts) *stack {
 	t.Helper()
 	ctx := context.Background()
+	// The fake target systems and providers listen on loopback; the stack
+	// allows it the way an operator with a local demo double does (#692).
+	if err := netguard.SetAllow("127.0.0.0/8,::1"); err != nil {
+		t.Fatal(err)
+	}
 
 	admin, err := db.Connect(ctx, adminDBURL)
 	if err != nil {
@@ -381,8 +390,13 @@ func newStackWith(t *testing.T, opts stackOpts) *stack {
 		readyTimeout = opts.readyTimeout
 	}
 
+	var platform map[string]orchestrator.PlatformSystem
+	if opts.platform != nil {
+		platform = opts.platform(s)
+	}
 	s.orch = orchestrator.New(orchestrator.Options{
-		Pool: pool, Registry: s.registry, Backlog: s.backlog, Obs: s.obs,
+		Platform: platform,
+		Pool:     pool, Registry: s.registry, Backlog: s.backlog, Obs: s.obs,
 		Rails: s.rails, Secrets: secretStore, Runtimes: s.runtimes, Identity: idp, Memory: s.mem,
 		Chat: chat.New(pool), Org: org.NewStore(pool),
 		Targets:        s.targets,
@@ -447,11 +461,17 @@ func newStackWith(t *testing.T, opts stackOpts) *stack {
 		ReqLog:        s.reqlog,
 		Orch:          s.orch, Log: log,
 		WebhookSecrets: map[string]string{"zammad": webhookSecret, "jira": webhookSecret},
-		SessionTTL:     time.Hour,
+		// The demo doubles (faketeams, the test's own manifest plugin) sign
+		// nothing; they pass because the operator says so, the way a local
+		// demo does (#690).
+		UnsignedWebhooks: map[string]bool{"teams": true, "helpdesk": true},
+		SessionTTL:       time.Hour,
 	}
 	s.srv = srv
 	s.http = httptest.NewServer(srv.Handler())
 	t.Cleanup(s.http.Close)
+	// Mails with a one-time link need a configured site address (#693).
+	srv.SiteURL = s.http.URL
 	s.orch.PublicWSURL = strings.Replace(s.http.URL, "http", "ws", 1) + "/api/daemon/ws"
 
 	orchCtx, cancel := context.WithCancel(ctx)

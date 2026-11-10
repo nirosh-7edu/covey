@@ -71,6 +71,12 @@ const (
 	// — without this route it rebuilds apt in its own home (spec/16, #106).
 	TypeRequestTool = "request_tool"
 	TypeInjectTool  = "inject_tool"
+	// TypeRequestPlatformAction/TypeInjectPlatformAction: a target-system
+	// action that runs in the control plane rather than in the sandbox,
+	// because its credential belongs to the installation and reaches beyond
+	// one organisation (the installation's Teams app, #710).
+	TypeRequestPlatformAction = "request_platform_action"
+	TypeInjectPlatformAction  = "inject_platform_action"
 	// #nosec G101 — the name of a message kind, not a secret.
 	TypeRequestSecret = "request_secret"
 )
@@ -240,6 +246,11 @@ type RequestApproval struct {
 	TaskID    string          `json:"task_id,omitempty"`
 	Action    string          `json:"action"` // e.g. "zammad:reply_external"
 	Params    json.RawMessage `json:"params"`
+	// Do is the plugin's own action name behind the subject ("reply"); the
+	// subject can be refined away from it. The control plane needs it to
+	// compare the action's scope with ACCESS.md (#704). Empty for the covey
+	// meta actions.
+	Do string `json:"do,omitempty"`
 }
 
 type Blocked struct {
@@ -383,6 +394,10 @@ type RequestCreateTask struct {
 	Title     string `json:"title"`
 	Body      string `json:"body"`
 	Priority  int    `json:"priority,omitempty"`
+	// ApprovalID is the approval the daemon's guard-rail check consumed for
+	// this request, if a rule required one. The control plane checks the rule
+	// again itself and accepts the request only with that approval (#703).
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 // RequestTool/InjectTool are the meta action covey/request_tool: "I am missing
@@ -400,6 +415,25 @@ type RequestTool struct {
 	// Why is the evidence: the command that failed on it, and what it was needed
 	// for. Without it the request cannot be decided.
 	Why string `json:"why"`
+}
+
+// RequestPlatformAction carries one action of a control-plane system. The
+// guard-rail decision the daemon fetched travels along as ApprovalID; the
+// control plane checks rails, ACCESS and scope again on its own.
+type RequestPlatformAction struct {
+	RequestID  string          `json:"request_id"`
+	TaskID     string          `json:"task_id,omitempty"`
+	System     string          `json:"system"`
+	Action     string          `json:"action"`
+	Params     json.RawMessage `json:"params,omitempty"`
+	ApprovalID string          `json:"approval_id,omitempty"`
+}
+
+type InjectPlatformAction struct {
+	RequestID string          `json:"request_id"`
+	OK        bool            `json:"ok"`
+	Error     string          `json:"error,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
 }
 
 type InjectTool struct {
@@ -442,6 +476,8 @@ type RequestMessage struct {
 	To        string        `json:"to,omitempty"`
 	Text      string        `json:"text"`
 	Files     []MessageFile `json:"files,omitempty"`
+	// ApprovalID: as on RequestCreateTask (#703).
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 // MessageFile is one file of a covey/message: its base name and its bytes

@@ -781,6 +781,7 @@
         "dev": "dev — さらに PHP、JDK、fvm、uv",
         "dev-flutter": "dev · Flutter — イメージに Flutter SDK、fvm、JDK",
         "dev-php": "dev · PHP — PHP 8.2、Composer、MariaDB",
+        "dev-php84": "dev · PHP 8.4 — PHP 8.4、Composer、MariaDB",
         "dev-web": "dev · Web — node-gyp ツールチェーン、chromium",
         "dev-full": "dev · フルスタック — すべて、Flutter SDK も含む"
       },
@@ -1764,7 +1765,7 @@
       "webhookHint": "システム側の変更を covey に自動で知らせたい場合にのみ必要です。エージェントが依頼されたときだけ動くなら、この手順は飛ばせます。そうでなければ、このアドレスをシステムに登録してください。",
       "webhookNoAgent": "前の手順でエージェントを選ぶと、ここに完成したアドレスが表示されます。",
       "secretSet": "{{env}} は設定済みです。受信した呼び出しは署名が検証されます。",
-      "secretMissing": "{{env}} が設定されていません。エンドポイントは呼び出しを受け付けますが、署名を検証しません。本番稼働の前に設定してください。",
+      "secretMissing": "{{env}} が設定されていません。設定されるまでエンドポイントは呼び出しを拒否します。組織のシークレットとして追加してください。",
       "probeHint": "テストは保存済みのキーでシステムにログインし、何も変更せずに、covey が誰として接続されるかを表示します。",
       "probeAsAgent": "{{agent}} として検査します — エージェント自身の資格情報が組織のものより優先されます。",
       "probeBtn": "接続を試す",
@@ -3631,5 +3632,45 @@
     "delete": "削除",
     "deleteTitle": "「{{name}}」を削除しますか？",
     "deleteText": "ワークフローは、すべてのバージョン、案件、その履歴とともに削除されます。元に戻せません。"
+  },
+  "teamsApp": {
+    "title": "Microsoft Teams",
+    "desc": "組織全体で 1 つの covey アプリ：Microsoft 365 を一度接続し、アプリを Teams にアップロードすれば、Teams へのアクセス権を持つ同僚にそこで話しかけられ、チャネルにも投稿できます。エージェントごとの Azure 登録は不要です。",
+    "notLinked": "まだ Microsoft 365 の組織に接続されていません。",
+    "linkedTenant": "接続済み：Microsoft テナント {{tenant}}",
+    "linkedBy": "{{who}} による",
+    "unlink": "切断",
+    "connect": "Microsoft 365 を接続",
+    "connectAnother": "別のテナントを接続",
+    "noSiteURL": "このインストールにはサイトアドレスが設定されていないため、Microsoft から戻れません。",
+    "package": "アプリパッケージをダウンロード",
+    "showChannels": "チャネル",
+    "hideChannels": "チャネルを隠す",
+    "adminOnly": "Microsoft 365 の接続は組織管理者が行います。",
+    "howTo": "Teams で covey アプリに直接書き込むか、チャネルで @メンションして同僚の名前から始めてください（「@covey Vera、…」）。エージェントの ACCESS.md には `- system: teamsapp scope: read,write` が必要です。",
+    "loading": "チャネルを読み込み中 …",
+    "noChannels": "まだチャネルがありません。Teams でアプリをチームに追加し、そこで一度メンションしてください。",
+    "channel": "チャネル",
+    "defaultAgent": "誰も指名されないときの宛先",
+    "defaultAgentFor": "{{channel}} の担当",
+    "nobody": "なし — 誰宛てか確認する",
+    "outcome": {
+      "linked": "Microsoft 365 が接続されました。",
+      "taken": "この Microsoft テナントは、このインストール上の別の組織にすでに接続されています。",
+      "not_admin": "接続できるのは Microsoft テナントの Teams 管理者またはグローバル管理者だけです。",
+      "error": "接続に失敗しました："
+    }
+  },
+  "teamsUser": {
+    "title": "本人としての Microsoft Teams",
+    "desc": "エージェントにあなた自身の Teams で作業させます。あなたが参加しているチャットやチャネルを読み、あなたの名前で返信・投稿します。各メッセージにはエージェントが送信したことが記されます。エージェントが見られるのは、あなたが見られる範囲だけです。",
+    "delegated": "あなたの Teams がエージェントに接続されました。",
+    "failed": "接続に失敗しました：",
+    "actsAs": "{{agent}} は Teams で {{who}} として動作します",
+    "revoke": "切断",
+    "agent": "エージェント",
+    "chooseAgent": "エージェントを選択 …",
+    "connect": "自分の Teams を接続",
+    "note": "エージェントの ACCESS.md にも `- system: teamsuser scope: read,write` が必要です。teamsuser:send_chat にガードレールを設定すると、メッセージごとにあなたの承認を求められます。"
   }
 }

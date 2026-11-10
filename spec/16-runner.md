@@ -489,7 +489,8 @@ The image therefore belongs **on the agent** (D11 in [`07-open-decisions.md`](07
 | `base` | coveyd, Node, Python, git, chromium, ripgrep | support, mail, QA, research |
 | `dev` | + PHP, JDK, `fvm`, `uv`, node-gyp | developer agents without a settled field |
 | `dev-flutter` | + Flutter SDK (in the image), `fvm`, JDK | Flutter agents |
-| `dev-php` | + PHP 8.2, Composer, MariaDB, node-gyp | PHP/Laravel agents |
+| `dev-php` | + PHP 8.2, Composer, MariaDB, node-gyp | PHP/Laravel agents on 8.2 |
+| `dev-php84` | + PHP 8.4, Composer, MariaDB, node-gyp | PHP/Laravel agents on 8.4 |
 | `dev-web` | + node-gyp toolchain | Node/TypeScript agents |
 | `dev-full` | + all of the above, Flutter SDK included | an installation that would rather not split |
 | org-owned | anything | special cases, tighter sandboxes |
@@ -659,6 +660,8 @@ Hard isolation mode (`network`) requires a proxy **in the sandbox's network segm
 1. **The segment belongs to the runner.** Today the internal network and the proxy container are instance-wide singletons (`covey-egress-internal`, `covey-egress-proxy`), so every sandbox of every organisation hangs off the same segment. The allowlist still applies per agent — the proxy identifies the agent by its per-sandbox token — but sandbox-to-sandbox traffic never reaches the proxy at all: `--internal` cuts the way out, not the way sideways. Both objects therefore carry the runner's identity in their name, one segment per runner. Since a runner serves one organisation, the tenant boundary falls out of it. **This is a gap that exists today**, independently of any runner, and it can be closed on its own before the rest of this.
 2. **The allowlist through the API instead of through the DB.** The proxy asks the control plane (authenticated with the runner token) and caches; the control plane pushes changes via `set_allowlist`. That is the prerequisite named above and **the right construction even without runners** — the proxy is an enforcement point, not a database client.
 3. **The control plane is a genuine foreign host.** `host.docker.internal` becomes the public address; it has to be on the proxy's internal allowlist so that the daemon link gets through hard mode. The mechanism for that exists (`COVEY_EGRESS_ALLOW`), only the value is no longer automatically right.
+
+**The mode is the host's.** A remote runner reads `COVEY_EGRESS_ENFORCE` and `COVEY_EGRESS_ISOLATION` (and the `egress_*` keys of its config) on its own host, with the control plane's defaults: enforced, cooperative. Both runners configure the docker provider through the same code (`Docker.UseHardEgress`, `StartCooperativeProxy`); the remote runner's cooperative proxy runs in the `covey-runner` process and asks the control plane through the API, as the proxy container does. The remote runner originally set none of this, and its sandboxes ran without any allowlist (#707) — the kind of gap a second wiring produces. The cooperative mode does not stop exfiltration on either runner: the sandbox is only told to use the proxy. Only `network` takes the direct route away.
 
 ## File access
 

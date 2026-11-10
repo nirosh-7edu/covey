@@ -5,6 +5,8 @@ package httpapi
 
 import (
 	"context"
+	"covey/internal/teamsapp"
+	"covey/internal/teamsuser"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -203,7 +205,14 @@ type Server struct {
 	// WebhookSecrets: target-system name → signature secret
 	// (ENV COVEY_<SYSTEM>_WEBHOOK_SECRET, e.g. COVEY_ZAMMAD_WEBHOOK_SECRET).
 	WebhookSecrets map[string]string
-	SessionTTL     time.Duration
+	// UnsignedWebhooks: systems whose webhooks pass without any secret, by the
+	// operator's explicit choice (COVEY_UNSIGNED_WEBHOOKS). See webhookSecret.
+	UnsignedWebhooks map[string]bool
+	// TeamsApp is the installation's own Teams app (#710); nil = none.
+	TeamsApp *teamsapp.Service
+	// TeamsUser is "Teams as a person" (#712); nil = not offered.
+	TeamsUser  *teamsuser.Service
+	SessionTTL time.Duration
 	// SiteURL is this instance's externally reachable address: canonical and
 	// sitemap.xml of the website, the webhook and trigger URLs to copy, the
 	// target URL in the downloadable skill. Empty = derive it from the request
@@ -592,6 +601,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/v1/org/chat-config-proposals", s.rbac(manage, s.handleSetChatConfigProposals))
 	// Whom a member writes to directly (#440): any agent, or those of their
 	// own departments.
+	mux.Handle("GET /api/v1/teamsuser", s.rbac(anyRole, s.handleTeamsUserStatus))
+	mux.Handle("POST /api/v1/teamsuser/delegate", s.rbac(manage, s.handleTeamsUserDelegate))
+	mux.Handle("DELETE /api/v1/teamsuser/delegations/{agent}", s.rbac(manage, s.handleTeamsUserRevoke))
+	mux.Handle("GET /api/v1/teamsapp", s.rbac(anyRole, s.handleTeamsAppStatus))
+	mux.Handle("POST /api/v1/teamsapp/link", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppLink))
+	mux.Handle("DELETE /api/v1/teamsapp/tenants/{tenant}", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppUnlink))
+	mux.Handle("GET /api/v1/teamsapp/channels", s.rbac(manage, s.handleTeamsAppChannels))
+	mux.Handle("PUT /api/v1/teamsapp/channel-agent", s.rbac(manage, s.handleTeamsAppChannelAgent))
+	mux.Handle("GET /api/v1/teamsapp/package", s.rbac(manage, s.handleTeamsAppPackage))
 	mux.Handle("GET /api/v1/org/chat-reach", s.rbac(anyRole, s.handleGetReach))
 	mux.Handle("PATCH /api/v1/org/chat-reach", s.rbac([]string{identity.RoleOrgAdmin}, s.handleSetReach))
 	// The organisation's default tone in the team chat (#457), beside the
@@ -909,6 +927,14 @@ func (s *Server) Handler() http.Handler {
 	// rejected: a webhook that fails on the signature is the most common
 	// question when hooking up a target system.
 	mux.HandleFunc("POST /api/webhooks/{system}/{agent}", s.logIncoming(s.handleTargetWebhook))
+	// The installation's Teams app (#710): one endpoint for every
+	// organisation, routed by the Microsoft tenant; and the redirect back
+	// from the tenant link's sign-in.
+	mux.HandleFunc("POST /api/webhooks/teamsapp", s.logIncoming(s.handleTeamsAppWebhook))
+	mux.HandleFunc("GET /api/teamsapp/callback", s.handleTeamsAppCallback)
+	mux.HandleFunc("GET /api/teamsuser/callback", s.handleTeamsUserCallback)
+	mux.HandleFunc("GET /api/teamsapp/signin", s.handleTeamsAppPersonSignIn)
+	mux.HandleFunc("GET /api/teamsapp/person-callback", s.handleTeamsAppPersonCallback)
 	mux.HandleFunc("POST /api/trigger/{token}", s.logIncoming(s.handleAgentTrigger))
 	// A workflow's own doors (#566): the same webhook parsing and the same
 	// token trigger, delivered to the workflow instead of an agent.
@@ -1044,7 +1070,7 @@ func mapErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, backlog.ErrInvalidTransition),
 		errors.Is(err, org.ErrLastAdmin), errors.Is(err, org.ErrEmailTaken),
-		errors.Is(err, org.ErrAlreadyMember),
+		errors.Is(err, org.ErrAlreadyMember), errors.Is(err, org.ErrSharedLogin),
 		errors.Is(err, accounts.ErrLastSystemAdmin), errors.Is(err, org.ErrManagerCycle):
 		writeErr(w, http.StatusConflict, err.Error())
 	default:

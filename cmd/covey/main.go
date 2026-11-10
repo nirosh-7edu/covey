@@ -10,9 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,6 +41,7 @@ import (
 	"covey/internal/mail"
 	"covey/internal/marketplace"
 	"covey/internal/memory"
+	"covey/internal/netguard"
 	"covey/internal/notify"
 	"covey/internal/observability"
 	"covey/internal/orchestrator"
@@ -51,6 +50,7 @@ import (
 	"covey/internal/reqlog"
 	"covey/internal/speech"
 
+	"covey/internal/msauth"
 	reqlogstore "covey/internal/reqlog/store"
 	"covey/internal/runner"
 	runnerstore "covey/internal/runner/store"
@@ -61,6 +61,10 @@ import (
 	"covey/internal/settings"
 	"covey/internal/skills"
 	targetstore "covey/internal/target/store"
+	"covey/internal/teamsapp"
+	"covey/internal/teamsapp/teamsys"
+	"covey/internal/teamsuser"
+	"covey/internal/teamsuser/usersys"
 	"covey/internal/telemetry"
 	"covey/internal/templates"
 	"covey/internal/voice"
@@ -741,43 +745,6 @@ func openBlobStore(ctx context.Context, cfg config.Config, log *slog.Logger) (ho
 	}
 }
 
-// controlPlaneHosts is what the hard-mode proxy lets through for the daemon
-// link: host.docker.internal for a loopback address, and the public host when
-// COVEY_PUBLIC_URL is a real name — in hard mode the daemon dials it through
-// the proxy by CONNECT, and without it on the list no sandbox would connect
-// back (spec/16, "Egress with distributed runners", point 3).
-func controlPlaneHosts(publicURL string) []string {
-	hosts := []string{"host.docker.internal"}
-	if u, err := url.Parse(rewriteLoopbackForContainer(publicURL)); err == nil {
-		if h := u.Hostname(); h != "" && h != "host.docker.internal" {
-			hosts = append(hosts, h)
-		}
-	}
-	return hosts
-}
-
-// rewriteLoopbackForContainer bends a loopback URL onto host.docker.internal so
-// that a container reaches the service on the host — the control plane for the
-// egress proxy, say. Non-loopback hosts (a real deployment address) stay
-// untouched.
-func rewriteLoopbackForContainer(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
-	default:
-		return raw
-	}
-	host := "host.docker.internal"
-	if port := u.Port(); port != "" {
-		host += ":" + port
-	}
-	u.Host = host
-	return u.String()
-}
-
 // runEgressProxy runs the egress allowlist proxy as a standalone process
 // (network isolation mode: it runs in the proxy container as the isolated
 // sandbox's only way out). The allowlist comes from the control plane + ENV +
@@ -792,6 +759,11 @@ func runEgressProxy(ctx context.Context, cfg config.Config, log *slog.Logger) er
 	if cfg.ControlURL == "" || cfg.RunnerToken == "" {
 		return fmt.Errorf("egress-proxy: COVEY_CONTROL_URL and COVEY_RUNNER_TOKEN are required — " +
 			"the proxy fetches its allowlist from the control plane")
+	}
+	// The operator's exceptions to the proxy's refusal of loopback, link-local
+	// and multicast destinations (#705), handed over by the control plane.
+	if err := netguard.SetAllow(os.Getenv("COVEY_OUTBOUND_ALLOW")); err != nil {
+		return err
 	}
 
 	// No reachability check at startup: in network mode the container is
@@ -821,23 +793,13 @@ func runEgressProxy(ctx context.Context, cfg config.Config, log *slog.Logger) er
 // close function.
 func startEgressProxy(ctx context.Context, cfg config.Config, store *egress.Store, log *slog.Logger) (string, func(), error) {
 	resolver := egress.NewDBResolver(ctx, store, egressBaseAllow(cfg), 15*time.Second, log)
-	proxy := egress.New(resolver, log)
-	listen := cfg.EgressListenAddr
-	if listen == "" {
-		listen = ":0"
-	}
-	addr, err := proxy.Start(listen)
+	containerURL, closeProxy, err := runner.StartCooperativeProxy(resolver, cfg.EgressListenAddr, log)
 	if err != nil {
 		return "", nil, err
 	}
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		_ = proxy.Close()
-		return "", nil, err
-	}
-	containerURL := "http://host.docker.internal:" + port
-	log.Info("egress enforcement active (cooperative)", "proxy", containerURL, "base", egressBaseAllow(cfg))
-	return containerURL, func() { _ = proxy.Close() }, nil
+	log.Info("egress enforcement active (cooperative — a sandbox can connect around the proxy; "+
+		"COVEY_EGRESS_ISOLATION=network is the mode that stops it)", "proxy", containerURL, "base", egressBaseAllow(cfg))
+	return containerURL, closeProxy, nil
 }
 
 // buildEmbedder picks the embedding for the wiki memory (spec/05). "builtin"
@@ -901,6 +863,16 @@ func startReembed(ctx context.Context, mem *memory.Store, log *slog.Logger) {
 func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if cfg.MasterKeyHex == "" {
 		return fmt.Errorf("COVEY_MASTER_KEY missing (generate one with `covey genkey`)")
+	}
+	// The exceptions to the guard on organisation-configured URLs (#692) and
+	// to the egress proxy's address check (#705): a target that genuinely runs
+	// on this host, a local demo double.
+	if err := netguard.SetAllow(os.Getenv("COVEY_OUTBOUND_ALLOW")); err != nil {
+		return err
+	}
+	// A malformed sandbox memory limit stops here rather than in every wake.
+	if err := runner.CheckMemoryLimit(cfg.SandboxMemory); err != nil {
+		return err
 	}
 	// Make hardening hints for non-local deployments visible.
 	for _, warn := range cfg.SecurityWarnings() {
@@ -1308,6 +1280,7 @@ func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			RunnerID: runnerID,
 			Image:    cfg.SandboxImage,
 			DataDir:  cfg.DataDir,
+			Memory:   cfg.SandboxMemory,
 			// The engine catalogue, and the directory its layers land in
 			// (spec/26). An empty URL leaves both inert.
 			Engines:     engines.NewSource(cfg.EngineCatalogURL, engines.FileCacheFor(cfg.DataDir), log),
@@ -1320,14 +1293,7 @@ func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 				// as its only way out. The proxy fetches the allowlist from the
 				// control plane and no longer from Postgres — it is an
 				// enforcement point, not a database client.
-				docker.EgressIsolation = "network"
-				docker.EgressProxyImage = "covey-egress:latest"
-				docker.EgressRunnerToken = runnerToken
-				docker.EgressProxyEnv = map[string]string{
-					"COVEY_CONTROL_URL":       rewriteLoopbackForContainer(cfg.PublicURL),
-					"COVEY_EGRESS_ALLOW":      strings.Join(append(append([]string{}, cfg.EgressAllow...), controlPlaneHosts(cfg.PublicURL)...), ","),
-					"COVEY_EGRESS_PROXY_ADDR": ":8888",
-				}
+				docker.UseHardEgress(cfg.PublicURL, runnerToken, cfg.EgressAllow, runner.DefaultEgressProxyImage)
 			default:
 				docker.EgressProxyURL = proxyURL
 			}
@@ -1345,7 +1311,7 @@ func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 
 	if egressEnforced && cfg.EgressIsolation == "network" {
-		log.Info("egress enforcement: hard network isolation active", "proxy-image", "covey-egress:latest")
+		log.Info("egress enforcement: hard network isolation active", "proxy-image", runner.DefaultEgressProxyImage)
 	}
 
 	// Clear away the egress objects of earlier versions: the segment carries
@@ -1409,9 +1375,48 @@ func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// store and decides nothing about them itself.
 	runtimeStore := runtimes.New(pool, secretStore)
 
+	// The installation's own Teams app (#710). The system only exists where
+	// the app is configured, so an organisation never finds a connector in
+	// its store that cannot work here.
+	teamsApp := teamsapp.New(pool, registry, teamsapp.Config{
+		AppID: cfg.TeamsAppID, AppPassword: cfg.TeamsAppPassword, TokenURL: cfg.TeamsAppTokenURL,
+		SSOConnection: cfg.TeamsAppSSOConnection,
+	}, log)
+	platform := map[string]orchestrator.PlatformSystem{}
+	if teamsApp != nil {
+		teamsys.Register()
+		teamsApp.Enabled = func(ctx context.Context, orgID uuid.UUID) bool {
+			_, err := targets.System(ctx, orgID, teamsys.Name)
+			return err == nil
+		}
+		platform[teamsys.Name] = teamsApp
+		log.Info("teams app active", "app_id", cfg.TeamsAppID)
+	}
+	// Teams as a person: a per-agent delegation (#712), and — through the
+	// Teams app's single sign-on — the person who wrote the message (#713).
+	// Tokens are sealed with the master key.
+	userCfg := teamsuser.Config{AppID: cfg.TeamsUserAppID, AppPassword: cfg.TeamsUserAppPassword}
+	if teamsApp != nil {
+		userCfg.SSO = &msauth.App{ClientID: cfg.TeamsAppID, Secret: cfg.TeamsAppPassword, Purpose: "teamsapp-person"}
+	}
+	teamsUser := teamsuser.New(pool, box, userCfg, log)
+	if teamsUser != nil {
+		usersys.Register()
+		platform[usersys.Name] = teamsUser
+		if teamsApp != nil {
+			teamsApp.People = teamsUser
+			teamsApp.ActsAsPerson = func(ctx context.Context, a agents.Agent) bool {
+				ok, err := registry.HasAccess(ctx, a.ID, usersys.Name, "")
+				return err == nil && ok
+			}
+		}
+		log.Info("teams as a person active", "own_app", cfg.TeamsUserAppID != "", "single_sign_on", teamsApp != nil)
+	}
+
 	wsURL := strings.Replace(cfg.PublicURL, "http", "ws", 1) + "/api/daemon/ws"
 	orch := orchestrator.New(orchestrator.Options{
-		Pool: pool, Registry: registry, Backlog: backlogStore, Obs: obs,
+		Platform: platform,
+		Pool:     pool, Registry: registry, Backlog: backlogStore, Obs: obs,
 		Rails: rails, Secrets: secretStore, Identity: idp, Memory: mem,
 		Chat: chat.New(pool), Org: org.NewStore(pool),
 		Runtimes:   runtimeStore,
@@ -1542,18 +1547,21 @@ func runServe(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Workflows: workflows,
 		Voices:    voiceStore,
 		Orch:      orch, WebFS: dist, Log: log,
-		WebhookSecrets: cfg.WebhookSecrets,
-		SessionTTL:     cfg.SessionTTL,
-		SiteURL:        cfg.SiteURL,
-		CookieSecure:   cfg.CookieSecure,
-		HSTS:           cfg.HSTS,
-		TrustedProxies: cfg.TrustedProxies,
-		EgressStore:    egressStore,
-		EgressEnforced: egressEnforced,
-		EgressDefaults: egressBaseAllow(cfg),
-		Config:         &cfg,
-		Runners:        runnerStore,
-		RunnerPool:     runnerPool,
+		WebhookSecrets:   cfg.WebhookSecrets,
+		UnsignedWebhooks: cfg.UnsignedWebhooks,
+		TeamsApp:         teamsApp,
+		TeamsUser:        teamsUser,
+		SessionTTL:       cfg.SessionTTL,
+		SiteURL:          cfg.SiteURL,
+		CookieSecure:     cfg.CookieSecure,
+		HSTS:             cfg.HSTS,
+		TrustedProxies:   cfg.TrustedProxies,
+		EgressStore:      egressStore,
+		EgressEnforced:   egressEnforced,
+		EgressDefaults:   egressBaseAllow(cfg),
+		Config:           &cfg,
+		Runners:          runnerStore,
+		RunnerPool:       runnerPool,
 		// Where a host fetches its new binary when somebody presses "update"
 		// (empty = the public releases, as install.sh does).
 		RunnerDownloadBase: cfg.RunnerDownloadBase,

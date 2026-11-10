@@ -94,6 +94,9 @@ type Config struct {
 	SandboxProvider string
 	// DataDir holds the persistent sandbox homes (docker provider).
 	DataDir string
+	// SandboxMemory is the memory limit of one sandbox in docker's notation
+	// ("4g"), empty = none (COVEY_SANDBOX_MEMORY, docker provider).
+	SandboxMemory string
 	// SandboxImage is the image of the default profile and at the same time the
 	// default for agents that name no workplace of their own. Derived from
 	// SandboxImages — not read separately.
@@ -185,6 +188,28 @@ type Config struct {
 	// COVEY_<SYSTEM>_WEBHOOK_SECRET → entry under the lowercased system name
 	// (e.g. COVEY_ZAMMAD_WEBHOOK_SECRET → "zammad").
 	WebhookSecrets map[string]string
+	// UnsignedWebhooks names the target systems whose webhooks are accepted
+	// without any secret (COVEY_UNSIGNED_WEBHOOKS, comma-separated, e.g.
+	// "zammad,teams") — for local demo doubles that cannot sign. Without it a
+	// webhook with no secret configured is refused (#690).
+	UnsignedWebhooks map[string]bool
+	// TeamsApp is the installation's own Microsoft Teams app (#710): one bot
+	// registration, multi-tenant, serving every organisation here
+	// (COVEY_TEAMSAPP_APP_ID / COVEY_TEAMSAPP_APP_PASSWORD, optionally
+	// COVEY_TEAMSAPP_TOKEN_URL). Empty ID = no Teams app on this installation.
+	// The password stays in the control plane; no sandbox ever sees it.
+	TeamsAppID       string
+	TeamsAppPassword string
+	TeamsAppTokenURL string
+	// TeamsAppSSOConnection names the Azure bot's OAuth connection used for
+	// single sign-on in the chat (#713); empty: "covey".
+	TeamsAppSSOConnection string
+	// TeamsUser is the app registration for "Teams as a person" (#712):
+	// delegated Graph access a person grants to an agent
+	// (COVEY_TEAMSUSER_APP_ID / COVEY_TEAMSUSER_APP_PASSWORD). A registration
+	// of its own beside the Teams bot. Empty = not offered.
+	TeamsUserAppID       string
+	TeamsUserAppPassword string
 	// TickInterval is the dispatch loop's periodic "anything to do?" impulse.
 	TickInterval time.Duration
 
@@ -251,6 +276,8 @@ type Config struct {
 	// EgressIsolation selects how strongly egress is enforced (docker provider):
 	// "proxy" (default, cooperative via HTTP_PROXY) | "network" (hard: sandbox on
 	// an internal network without internet, the proxy container as the only exit).
+	// Only "network" stops a sandbox from sending data elsewhere: in "proxy" the
+	// sandbox is told to use the proxy, and nothing prevents a direct connection.
 	EgressIsolation string
 	// EgressProxyAddr is the bind address of the standalone egress proxy
 	// (subcommand `covey egress-proxy`, a container in network mode).
@@ -364,6 +391,7 @@ func FromEnv() (Config, error) {
 		SecretStore:        getenv("COVEY_SECRET_STORE", "builtin"),
 		SandboxProvider:    getenv("COVEY_SANDBOX_PROVIDER", "docker"),
 		DataDir:            getenv("COVEY_DATA_DIR", "./data"),
+		SandboxMemory:      strings.TrimSpace(os.Getenv("COVEY_SANDBOX_MEMORY")),
 		SpeechModel:        strings.TrimSpace(getenv("COVEY_SPEECH_MODEL", "parakeet")),
 		SpeechModels:       splitList(getenv("COVEY_SPEECH_MODELS", "parakeet,sensevoice")),
 		SandboxImageEnv:    sandboxImageEnv(),
@@ -380,36 +408,43 @@ func FromEnv() (Config, error) {
 		HSTS:             getenv("COVEY_HSTS", "basic"),
 		// 0 leaves the pool its own default — a second number here would be a
 		// second truth, and exactly that has bitten twice today.
-		SandboxStartTimeout:  getenvDuration("COVEY_SANDBOX_START_TIMEOUT", 0),
-		HomeStore:            getenvBool("COVEY_HOME_STORE", true),
-		HomeExcludes:         homeExcludes(os.Getenv("COVEY_HOME_EXCLUDES")),
-		BlobStore:            getenv("COVEY_BLOB_STORE", "builtin"),
-		S3Endpoint:           getenv("COVEY_S3_ENDPOINT", ""),
-		S3Bucket:             getenv("COVEY_S3_BUCKET", ""),
-		S3Prefix:             getenv("COVEY_S3_PREFIX", ""),
-		S3Region:             getenv("COVEY_S3_REGION", ""),
-		S3AccessKey:          getenv("COVEY_S3_ACCESS_KEY", ""),
-		S3SecretKey:          getenv("COVEY_S3_SECRET_KEY", ""),
-		S3PathStyle:          getenvBool("COVEY_S3_PATH_STYLE", true),
-		WebhookSecrets:       webhookSecretsFromEnv(),
-		TickInterval:         getenvDuration("COVEY_TICK_INTERVAL", 30*time.Second),
-		DreamAt:              getenv("COVEY_DREAM_AT", "03:00"),
-		SessionTTL:           getenvDuration("COVEY_SESSION_TTL", 7*24*time.Hour),
-		DaemonTokenTTL:       getenvDuration("COVEY_DAEMON_TOKEN_TTL", 15*time.Minute),
-		BoardRetention:       getenvDuration("COVEY_BOARD_RETENTION", 24*time.Hour),
-		TidyHomeAboveBytes:   offWhenZero(int64(getenvInt("COVEY_HOME_TIDY_ABOVE_GB", 5)) << 30),
-		TidyHomeAboveEntries: int(offWhenZero(int64(getenvInt("COVEY_HOME_TIDY_ABOVE_ENTRIES", 200)))),
-		EgressEnforce:        getenvBool("COVEY_EGRESS_ENFORCE", true),
-		EgressListenAddr:     getenv("COVEY_EGRESS_LISTEN_ADDR", ""),
-		EgressAllow:          splitList(os.Getenv("COVEY_EGRESS_ALLOW")),
-		BuiltinRunner:        getenv("COVEY_BUILTIN_RUNNER", "auto"),
-		EgressIsolation:      getenv("COVEY_EGRESS_ISOLATION", "proxy"),
-		EgressProxyAddr:      getenv("COVEY_EGRESS_PROXY_ADDR", ":8888"),
-		ControlURL:           getenv("COVEY_CONTROL_URL", ""),
-		RunnerToken:          getenv("COVEY_RUNNER_TOKEN", ""),
-		WikiCleanup:          strings.TrimSpace(os.Getenv("COVEY_WIKI_CLEANUP")),
-		RuntimeTools:         splitList(os.Getenv("COVEY_RUNTIME_TOOLS")),
-		MarketplaceURL:       getenv("COVEY_MARKETPLACE_URL", DefaultMarketplaceURL),
+		SandboxStartTimeout:   getenvDuration("COVEY_SANDBOX_START_TIMEOUT", 0),
+		HomeStore:             getenvBool("COVEY_HOME_STORE", true),
+		HomeExcludes:          homeExcludes(os.Getenv("COVEY_HOME_EXCLUDES")),
+		BlobStore:             getenv("COVEY_BLOB_STORE", "builtin"),
+		S3Endpoint:            getenv("COVEY_S3_ENDPOINT", ""),
+		S3Bucket:              getenv("COVEY_S3_BUCKET", ""),
+		S3Prefix:              getenv("COVEY_S3_PREFIX", ""),
+		S3Region:              getenv("COVEY_S3_REGION", ""),
+		S3AccessKey:           getenv("COVEY_S3_ACCESS_KEY", ""),
+		S3SecretKey:           getenv("COVEY_S3_SECRET_KEY", ""),
+		S3PathStyle:           getenvBool("COVEY_S3_PATH_STYLE", true),
+		WebhookSecrets:        webhookSecretsFromEnv(),
+		UnsignedWebhooks:      unsignedWebhooksFromEnv(),
+		TeamsAppID:            strings.TrimSpace(os.Getenv("COVEY_TEAMSAPP_APP_ID")),
+		TeamsAppPassword:      os.Getenv("COVEY_TEAMSAPP_APP_PASSWORD"),
+		TeamsAppTokenURL:      strings.TrimSpace(os.Getenv("COVEY_TEAMSAPP_TOKEN_URL")),
+		TeamsAppSSOConnection: strings.TrimSpace(os.Getenv("COVEY_TEAMSAPP_SSO_CONNECTION")),
+		TeamsUserAppID:        strings.TrimSpace(os.Getenv("COVEY_TEAMSUSER_APP_ID")),
+		TeamsUserAppPassword:  os.Getenv("COVEY_TEAMSUSER_APP_PASSWORD"),
+		TickInterval:          getenvDuration("COVEY_TICK_INTERVAL", 30*time.Second),
+		DreamAt:               getenv("COVEY_DREAM_AT", "03:00"),
+		SessionTTL:            getenvDuration("COVEY_SESSION_TTL", 7*24*time.Hour),
+		DaemonTokenTTL:        getenvDuration("COVEY_DAEMON_TOKEN_TTL", 15*time.Minute),
+		BoardRetention:        getenvDuration("COVEY_BOARD_RETENTION", 24*time.Hour),
+		TidyHomeAboveBytes:    offWhenZero(int64(getenvInt("COVEY_HOME_TIDY_ABOVE_GB", 5)) << 30),
+		TidyHomeAboveEntries:  int(offWhenZero(int64(getenvInt("COVEY_HOME_TIDY_ABOVE_ENTRIES", 200)))),
+		EgressEnforce:         getenvBool("COVEY_EGRESS_ENFORCE", true),
+		EgressListenAddr:      getenv("COVEY_EGRESS_LISTEN_ADDR", ""),
+		EgressAllow:           splitList(os.Getenv("COVEY_EGRESS_ALLOW")),
+		BuiltinRunner:         getenv("COVEY_BUILTIN_RUNNER", "auto"),
+		EgressIsolation:       getenv("COVEY_EGRESS_ISOLATION", "proxy"),
+		EgressProxyAddr:       getenv("COVEY_EGRESS_PROXY_ADDR", ":8888"),
+		ControlURL:            getenv("COVEY_CONTROL_URL", ""),
+		RunnerToken:           getenv("COVEY_RUNNER_TOKEN", ""),
+		WikiCleanup:           strings.TrimSpace(os.Getenv("COVEY_WIKI_CLEANUP")),
+		RuntimeTools:          splitList(os.Getenv("COVEY_RUNTIME_TOOLS")),
+		MarketplaceURL:        getenv("COVEY_MARKETPLACE_URL", DefaultMarketplaceURL),
 
 		EmbeddingProvider: getenv("COVEY_EMBEDDING_PROVIDER", "builtin"),
 		EmbeddingModel:    strings.TrimSpace(os.Getenv("COVEY_EMBEDDING_MODEL")),
@@ -768,4 +803,16 @@ func homeExcludes(v string) []string {
 		return nil
 	}
 	return list
+}
+
+// unsignedWebhooksFromEnv reads COVEY_UNSIGNED_WEBHOOKS: the systems an
+// operator explicitly lets in without a signature.
+func unsignedWebhooksFromEnv() map[string]bool {
+	out := map[string]bool{}
+	for _, name := range strings.Split(os.Getenv("COVEY_UNSIGNED_WEBHOOKS"), ",") {
+		if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+			out[name] = true
+		}
+	}
+	return out
 }

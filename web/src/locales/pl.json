@@ -781,6 +781,7 @@
         "dev": "dev — dodatkowo PHP, JDK, fvm, uv",
         "dev-flutter": "dev · Flutter — Flutter SDK w obrazie, fvm, JDK",
         "dev-php": "dev · PHP — PHP 8.2, Composer, MariaDB",
+        "dev-php84": "dev · PHP 8.4 — PHP 8.4, Composer, MariaDB",
         "dev-web": "dev · Web — zestaw node-gyp, chromium",
         "dev-full": "dev · Pełny stos — wszystko, razem z Flutter SDK"
       },
@@ -1764,7 +1765,7 @@
       "webhookHint": "Potrzebne tylko wtedy, gdy system ma sam powiadamiać covey o zmianach. Jeśli agent pracuje tylko na prośbę, możesz pominąć ten krok. W przeciwnym razie wpisz ten adres w systemie.",
       "webhookNoAgent": "Wybierz agenta w poprzednim kroku, a tutaj pojawi się jego gotowy adres.",
       "secretSet": "{{env}} jest ustawione — przychodzące wywołania mają sprawdzany podpis.",
-      "secretMissing": "{{env}} nie jest ustawione. Punkt końcowy przyjmuje wywołania, ale nie sprawdza podpisu — ustaw to, zanim ruszysz produkcyjnie.",
+      "secretMissing": "{{env}} nie jest ustawione. Punkt końcowy odrzuca wywołania, dopóki nie zostanie ustawione — dodaj je jako sekret organizacji.",
       "probeHint": "Test loguje się do systemu zapisanym kluczem, niczego nie zmienia i pokazuje, jako kto covey się tam pojawia.",
       "probeAsAgent": "Test wykonywany jako {{agent}} — własne poświadczenie agenta liczy się przed poświadczeniem organizacji.",
       "probeBtn": "Sprawdź połączenie",
@@ -3631,5 +3632,45 @@
     "delete": "Usuń",
     "deleteTitle": "Usunąć „{{name}}”?",
     "deleteText": "Przepływ zniknie wraz ze wszystkimi wersjami, sprawami i ich historią. Tego nie da się cofnąć."
+  },
+  "teamsApp": {
+    "title": "Microsoft Teams",
+    "desc": "Jedna aplikacja covey dla całej organizacji: połącz Microsoft 365 raz, wgraj aplikację do Teams, a każdy współpracownik z dostępem do Teams będzie tam osiągalny i będzie mógł publikować na kanałach. Bez rejestracji Azure dla każdego agenta.",
+    "notLinked": "Jeszcze niepołączone z żadną organizacją Microsoft 365.",
+    "linkedTenant": "Połączono: dzierżawa Microsoft {{tenant}}",
+    "linkedBy": "przez {{who}}",
+    "unlink": "Rozłącz",
+    "connect": "Połącz Microsoft 365",
+    "connectAnother": "Połącz kolejną dzierżawę",
+    "noSiteURL": "Ta instalacja nie ma skonfigurowanego adresu strony, więc Microsoft nie może do niej wrócić.",
+    "package": "Pobierz pakiet aplikacji",
+    "showChannels": "Kanały",
+    "hideChannels": "Ukryj kanały",
+    "adminOnly": "Microsoft 365 łączy administrator organizacji.",
+    "howTo": "W Teams napisz bezpośrednio do aplikacji covey albo oznacz ją przez @ na kanale i zacznij od imienia współpracownika („@covey Vera, …”). Agenci potrzebują `- system: teamsapp scope: read,write` w swoim ACCESS.md.",
+    "loading": "Wczytywanie kanałów …",
+    "noChannels": "Brak kanałów. Dodaj aplikację do zespołu w Teams i raz ją tam oznacz.",
+    "channel": "Kanał",
+    "defaultAgent": "Trafia do, gdy nikt nie jest wymieniony",
+    "defaultAgentFor": "Współpracownik dla {{channel}}",
+    "nobody": "Nikt — zapytać, o kogo chodzi",
+    "outcome": {
+      "linked": "Microsoft 365 jest połączony.",
+      "taken": "Ta dzierżawa Microsoft jest już połączona z inną organizacją w tej instalacji.",
+      "not_admin": "Połączyć ją może tylko administrator Teams lub administrator globalny dzierżawy Microsoft.",
+      "error": "Połączenie nie powiodło się:"
+    }
+  },
+  "teamsUser": {
+    "title": "Microsoft Teams jako osoba",
+    "desc": "Pozwól agentowi pracować w Twoim Teams: czyta czaty i kanały, w których jesteś, i odpowiada lub publikuje w Twoim imieniu, a każda wiadomość jest oznaczona jako wysłana przez agenta. Widzi dokładnie to, co Ty.",
+    "delegated": "Twój Teams jest połączony z agentem.",
+    "failed": "Połączenie nie powiodło się:",
+    "actsAs": "{{agent}} działa w Teams jako {{who}}",
+    "revoke": "Rozłącz",
+    "agent": "Agent",
+    "chooseAgent": "Wybierz agenta …",
+    "connect": "Połącz mój Teams",
+    "note": "Agent potrzebuje też `- system: teamsuser scope: read,write` w swoim ACCESS.md. Reguła dla teamsuser:send_chat może wymagać Twojej zgody na każdą wiadomość."
   }
 }
