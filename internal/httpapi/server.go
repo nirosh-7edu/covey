@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"context"
+	"covey/internal/sso"
 	"covey/internal/teamsapp"
 	"covey/internal/teamsuser"
 	"crypto/rand"
@@ -211,7 +212,9 @@ type Server struct {
 	// TeamsApp is the installation's own Teams app (#710); nil = none.
 	TeamsApp *teamsapp.Service
 	// TeamsUser is "Teams as a person" (#712); nil = not offered.
-	TeamsUser  *teamsuser.Service
+	TeamsUser *teamsuser.Service
+	// SSO is single sign-on per organisation (#723); nil = not offered.
+	SSO        *sso.Service
 	SessionTTL time.Duration
 	// SiteURL is this instance's externally reachable address: canonical and
 	// sitemap.xml of the website, the webhook and trigger URLs to copy, the
@@ -326,6 +329,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/public/verify/resend", s.handleResendVerification)
 	mux.HandleFunc("POST /api/v1/public/password-reset", s.handlePasswordReset)
 	mux.HandleFunc("POST /api/v1/public/password-reset/confirm", s.handlePasswordResetConfirm)
+	// Single sign-on per organisation (#723): where an address signs in, and
+	// the two browser navigations of the sign-in itself.
+	mux.HandleFunc("GET /api/v1/public/sso/discover", s.handleSSODiscover)
+	mux.HandleFunc("GET /api/sso/start", s.handleSSOStart)
+	mux.HandleFunc("GET /api/sso/callback", s.handleSSOCallback)
 
 	// Auth.
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -605,8 +613,20 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/teamsuser/delegate", s.rbac(manage, s.handleTeamsUserDelegate))
 	mux.Handle("DELETE /api/v1/teamsuser/delegations/{agent}", s.rbac(manage, s.handleTeamsUserRevoke))
 	mux.Handle("GET /api/v1/teamsapp", s.rbac(anyRole, s.handleTeamsAppStatus))
-	mux.Handle("POST /api/v1/teamsapp/link", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppLink))
-	mux.Handle("DELETE /api/v1/teamsapp/tenants/{tenant}", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppUnlink))
+	// The organisation's single sign-on (#723) — its org admin's alone.
+	// Requiring it is session-only: the proof that the admin signed in
+	// through the provider is the session.
+	ssoAdmin := []string{identity.RoleOrgAdmin}
+	mux.Handle("GET /api/v1/org/sso", s.rbac(ssoAdmin, s.handleGetOrgSSO))
+	mux.Handle("PUT /api/v1/org/sso", s.rbac(ssoAdmin, s.handleSaveOrgSSO))
+	mux.Handle("DELETE /api/v1/org/sso", s.rbac(ssoAdmin, s.handleDeleteOrgSSO))
+	mux.Handle("PUT /api/v1/org/sso/required", s.rbac(ssoAdmin, s.sessionOnly(s.handleSetOrgSSORequired)))
+	mux.Handle("POST /api/v1/org/sso/domains", s.rbac(ssoAdmin, s.handleAddOrgSSODomain))
+	mux.Handle("POST /api/v1/org/sso/domains/{domain}/verify", s.rbac(ssoAdmin, s.handleVerifyOrgSSODomain))
+	mux.Handle("POST /api/v1/org/sso/domains/{domain}/confirm", s.rbac(ssoAdmin, s.sessionOnly(s.handleConfirmOrgSSODomain)))
+	mux.Handle("DELETE /api/v1/org/sso/domains/{domain}", s.rbac(ssoAdmin, s.handleDeleteOrgSSODomain))
+	mux.Handle("PUT /api/v1/teamsapp/bot", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppSaveBot))
+	mux.Handle("DELETE /api/v1/teamsapp/bot", s.rbac([]string{identity.RoleOrgAdmin}, s.handleTeamsAppDeleteBot))
 	mux.Handle("GET /api/v1/teamsapp/channels", s.rbac(manage, s.handleTeamsAppChannels))
 	mux.Handle("PUT /api/v1/teamsapp/channel-agent", s.rbac(manage, s.handleTeamsAppChannelAgent))
 	mux.Handle("GET /api/v1/teamsapp/package", s.rbac(manage, s.handleTeamsAppPackage))
@@ -902,6 +922,9 @@ func (s *Server) Handler() http.Handler {
 	// of the installation and the waitlist codes (internal/httpapi/platform.go).
 	mux.Handle("GET /api/v1/platform/accounts", s.platformAdmin(s.handleListAccounts))
 	mux.Handle("PATCH /api/v1/platform/accounts/{id}", s.platformAdmin(s.handleSetAccountPlatformRole))
+	// Deleting a login with all its seats (#732): session only, like every
+	// move that cannot be taken back.
+	mux.Handle("DELETE /api/v1/platform/accounts/{id}", s.platformAdmin(s.sessionOnly(s.handleDeleteAccount)))
 	mux.Handle("GET /api/v1/platform/settings", s.platformAdmin(s.handleListSettings))
 	mux.Handle("PUT /api/v1/platform/settings/{key}", s.platformAdmin(s.handleSetSetting))
 	mux.Handle("POST /api/v1/platform/mail/test", s.platformAdmin(s.handleTestMail))
@@ -927,11 +950,9 @@ func (s *Server) Handler() http.Handler {
 	// rejected: a webhook that fails on the signature is the most common
 	// question when hooking up a target system.
 	mux.HandleFunc("POST /api/webhooks/{system}/{agent}", s.logIncoming(s.handleTargetWebhook))
-	// The installation's Teams app (#710): one endpoint for every
-	// organisation, routed by the Microsoft tenant; and the redirect back
-	// from the tenant link's sign-in.
-	mux.HandleFunc("POST /api/webhooks/teamsapp", s.logIncoming(s.handleTeamsAppWebhook))
-	mux.HandleFunc("GET /api/teamsapp/callback", s.handleTeamsAppCallback)
+	// An organisation's Teams bot (#710, #715): one messaging endpoint per
+	// bot.
+	mux.HandleFunc("POST /api/webhooks/teamsapp/{bot}", s.logIncoming(s.handleTeamsAppWebhook))
 	mux.HandleFunc("GET /api/teamsuser/callback", s.handleTeamsUserCallback)
 	mux.HandleFunc("GET /api/teamsapp/signin", s.handleTeamsAppPersonSignIn)
 	mux.HandleFunc("GET /api/teamsapp/person-callback", s.handleTeamsAppPersonCallback)
@@ -1071,7 +1092,8 @@ func mapErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, backlog.ErrInvalidTransition),
 		errors.Is(err, org.ErrLastAdmin), errors.Is(err, org.ErrEmailTaken),
 		errors.Is(err, org.ErrAlreadyMember), errors.Is(err, org.ErrSharedLogin),
-		errors.Is(err, accounts.ErrLastSystemAdmin), errors.Is(err, org.ErrManagerCycle):
+		errors.Is(err, accounts.ErrLastSystemAdmin), errors.Is(err, org.ErrManagerCycle),
+		errors.Is(err, org.ErrLastSystemAdmin):
 		writeErr(w, http.StatusConflict, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1362,6 +1384,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	key := s.loginKey(r, in.Email)
 	if s.loginLimiter.blocked(key, now) {
 		writeErr(w, http.StatusTooManyRequests, "too many failed attempts — please try again later")
+		return
+	}
+	// An address whose organisation requires single sign-on has no password
+	// to try (#723). Said plainly rather than as "invalid credentials": the
+	// sign-in page shows the same through discovery anyway, and a person
+	// typing a password that was taken away should learn where to go.
+	if s.passwordRefused(r.Context(), in.Email) {
+		writeSSORequired(w)
 		return
 	}
 	p, err := s.Identity.AuthenticateHuman(r.Context(), identity.Credentials{Email: in.Email, Password: in.Password})
